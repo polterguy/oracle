@@ -4,7 +4,7 @@
  * scraping the result, and passing it into OpenAI to re-assemble
  * a new article.
  */
-
+.description:@"Invokes DuckDuckGo search and scrapes the top 5 articles, creating an OpenAI context out of the result, for then to invoke ChatGPT to transform the text to answer the user's question, creating an article in the process."
 .arguments
    prompt:string
 
@@ -12,7 +12,7 @@
 validators.mandatory:x:@.arguments/*/prompt
 validators.string:x:@.arguments/*/prompt
    min:5
-   max:100
+   max:250
 
 // Invoking DuckDuckGo.
 .context
@@ -60,6 +60,9 @@ http.post:"https://api.openai.com/v1/chat/completions"
    convert:true
 
 // Creating an article out of the above result.
+data.connect:[generic|oracle]
+   data.create
+      table:articles
 
 // Returning result to caller.
 unwrap:x:+/*
