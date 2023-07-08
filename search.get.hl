@@ -1,0 +1,67 @@
+
+/*
+ * Primary search entry point for querying DuckDuckGo,
+ * scraping the result, and passing it into OpenAI to re-assemble
+ * a new article.
+ */
+
+.arguments
+   prompt:string
+
+// Sanity checking invocation
+validators.mandatory:x:@.arguments/*/prompt
+validators.string:x:@.arguments/*/prompt
+   min:5
+   max:100
+
+// Invoking DuckDuckGo.
+.context
+unwrap:x:+/*/*/query
+set-value:x:@.context
+   signal:magic.ai.create-search-context
+      query:x:@.arguments/*/prompt
+      max_tokens:int:2500
+
+/*
+ * Invoking OpenAI with above as context, and a system message
+ * instructing it to create a summary of the above.
+ */
+.system-message
+set-value:x:@.system-message
+   strings.concat
+      .:@"Summarise the context in the next message in maximum 5 paragraphs and answer the question: """
+      get-value:x:@.arguments/*/prompt
+      .:@""" while preserving Markdown, and include a couple of relevant images and hyperlinks if possible.
+
+Preserve all sources you can find in the text, and create Markdown hyperlinks for these at the end of your answer as a bulleted list"
+
+// Invoking OpenAI.
+.token
+set-value:x:@.token
+   strings.concat
+      .:"Bearer "
+      config.get:"magic:openai:key"
+unwrap:x:+/*/payload/*/messages/*/*/content
+http.post:"https://api.openai.com/v1/chat/completions"
+   headers
+      Authorization:x:@.token
+      Content-Type:application/json
+   payload
+      model:gpt-3.5-turbo
+      max_tokens:int:1500
+      temperature:decimal:0.5
+      messages
+         .
+            role:system
+            content:x:@.system-message
+         .
+            role:system
+            content:x:@.context
+   convert:true
+
+// Creating an article out of the above result.
+
+// Returning result to caller.
+unwrap:x:+/*
+return
+   result:foo bar
