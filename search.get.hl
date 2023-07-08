@@ -22,6 +22,20 @@ set-value:x:@.context
       query:x:@.arguments/*/prompt
       max_tokens:int:2500
 
+// Sanity checking above invocation
+if
+   or
+      null:x:@.context
+      eq:x:@.context
+         .:
+   .lambda
+
+      // Oops, error.
+      log.error:Something went wrong as we invoked DuckDuckGo
+      throw:DuckDuckGo returned nothing as its result of our query
+         public:bool:true
+         status:int:500
+
 /*
  * Invoking OpenAI with above as context, and a system message
  * instructing it to create a summary of the above.
@@ -29,9 +43,9 @@ set-value:x:@.context
 .system-message
 set-value:x:@.system-message
    strings.concat
-      .:@"Summarise the context in the next message in maximum 5 paragraphs and answer the question: """
+      .:@"Summarise the context in the next message in maximum 8 paragraphs and answer the question: """
       get-value:x:@.arguments/*/prompt
-      .:@""" while preserving Markdown, and include a couple of relevant images and hyperlinks if possible.
+      .:@""". Preserve Markdown as is, and include a couple of relevant images and hyperlinks if possible.
 
 Preserve all sources you can find in the text, and create Markdown hyperlinks for these at the end of your answer as a bulleted list"
 
@@ -47,7 +61,7 @@ http.post:"https://api.openai.com/v1/chat/completions"
       Authorization:x:@.token
       Content-Type:application/json
    payload
-      model:gpt-3.5-turbo
+      model:gpt-4
       max_tokens:int:1500
       temperature:decimal:0.5
       messages
@@ -59,12 +73,54 @@ http.post:"https://api.openai.com/v1/chat/completions"
             content:x:@.context
    convert:true
 
+// Sanity checking above invocation
+if
+   not
+      and
+         mte:x:@http.post
+            .:int:200
+         lt:x:@http.post
+            .:int:300
+   .lambda
+
+      // Oops, error - Logging error and returning status code to caller.
+      lambda2hyper:x:@http.post
+      log.error:Something went wrong while invoking OpenAI
+         message:x:@http.post/*/content/*/error/*/message
+         status:x:@http.post
+         error:x:@lambda2hyper
+      throw:x:@http.post/*/content/*/error/*/message
+         public:bool:true
+         status:x:@http.post
+
+// Creating our source.
+.source
+set-value:x:@.source
+   strings.concat
+      .:"https://html.duckduckgo.com/html/?q="
+      strings.url-encode:x:@.arguments/*/prompt
+
+// Creating a unique URL.
+.url
+set-value:x:@.url
+   guid.new
+set-value:x:@.url
+   convert:x:@.url
+      type:string
+set-value:x:@.url
+   crypto.hash.sha1:x:@.url
+
 // Creating an article out of the above result.
 data.connect:[generic|oracle]
    data.create
       table:articles
+      values
+         title:x:@.arguments/*/prompt
+         content:x:@http.post/*/content/*/choices/0/*/message/*/content
+         url:x:@.url
+         source:x:@.source
 
 // Returning result to caller.
 unwrap:x:+/*
 return
-   result:foo bar
+   url:x:@.url
