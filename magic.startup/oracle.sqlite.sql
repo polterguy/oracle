@@ -6,6 +6,6 @@ CREATE TABLE articles (
   title text not null,
   content text not null,
   url text not null,
-  source text not null
+  source text not null,
+  created timestamp not null default current_timestamp
 );
-
