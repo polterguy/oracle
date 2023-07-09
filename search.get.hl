@@ -8,8 +8,10 @@
 .arguments
    prompt:string
    channel:string
+   token:string
 
 // Sanity checking invocation.
+validators.mandatory:x:@.arguments/*/token
 validators.mandatory:x:@.arguments/*/prompt
 validators.string:x:@.arguments/*/prompt
    min:5
@@ -21,6 +23,17 @@ set-value:x:@.channel
    strings.concat
       .:oracle.message.
       get-value:x:@.arguments/*/channel
+
+// Sanity checking reCAPTCHA token
+sockets.signal:x:@.channel
+   args
+      message:Verifying reCAPTCHA token
+config.get:"magic:auth:recaptcha:key"
+config.get:"magic:auth:recaptcha:secret"
+validators.recaptcha:x:@.arguments/*/token
+   min:decimal:0.3
+   site-key:x:@config.get/@config.get
+   secret:x:@config.get
 
 /*
  * Checking cache by creating embeddings for question and looking up into articles table,
@@ -167,6 +180,7 @@ set-value:x:@.system-message
 * Answer all my questions with information found in the context specified in the next message.
 * Never answer with more than maximum 5 paragraphs or 10 sentences.
 * Always provide the answer to my question first, then provide more information.
+* Always answer my question in the same language I ask.
 * List all references you can find as Markdown at the end.
 
 My question is: """
