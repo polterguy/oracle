@@ -167,7 +167,11 @@ set-value:x:@.system-message
 * Answer all my questions with information found in the context specified in the next message.
 * Never answer with more than maximum 5 paragraphs or 10 sentences.
 * Always provide the answer to my question first, then provide more information.
-* List all references you can find as Markdown at the end."
+* List all references you can find as Markdown at the end.
+
+My question is: """
+      get-value:x:@.arguments/*/prompt
+      .:@""""
 
 // Invoking OpenAI.
 unwrap:x:+/*/payload/*/messages/*/*/content
@@ -223,12 +227,22 @@ set-value:x:@.source
 // Creating a unique URL.
 .url
 set-value:x:@.url
-   guid.new
+   strings.to-lower:x:@.arguments/*/prompt
 set-value:x:@.url
-   convert:x:@.url
-      type:string
+   strings.replace-not-of:x:@.url
+      .:"abcdefghijklmnopqrstuvwxyz0123456789"
+      .:-
 set-value:x:@.url
-   crypto.hash.sha1:x:@.url
+   strings.trim:x:@.url
+      .:-
+crypto.random
+   min:10
+   max:10
+set-value:x:@.url
+   strings.concat:x:@.url
+      get-value:x:@.url
+      .:-
+      strings.to-lower:x:@crypto.random
 
 // Creating an article out of the above result.
 data.connect:[generic|oracle]
