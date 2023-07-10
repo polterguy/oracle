@@ -1,0 +1,25 @@
+
+/*
+ * Returns how many answers database contains.
+ */
+.description:@"Returns how many answers database contains"
+.arguments
+
+// Connecting to database to count answers.
+data.connect:[generic|oracle]
+
+   // Counting answers.
+   data.read
+      table:articles
+      columns
+         count(*)
+            as:count
+
+   // Applying some HTTP cache to avoid exhausting system.
+   response.headers.set
+      Cache-Control:public; max-age=60
+
+   // Returning result to caller.
+   unwrap:x:+/*
+   return
+      count:x:@data.read/*/*/count

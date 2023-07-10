@@ -1,14 +1,14 @@
 
 /*
- * Returns 5 most recent answers to caller.
+ * Returns 10 most recent answers to caller.
  */
-.description:@"Returns 5 most recent answers to caller"
+.description:@"Returns 10 most recent answers to caller"
 .arguments
 
-// Connecting to database to retrieve 5 most recent answers.
+// Connecting to database to retrieve 10 most recent answers.
 data.connect:[generic|oracle]
 
-   // Retrieving 5 last answers sorted by when they were created.
+   // Retrieving 10 last answers sorted by when they were created.
    data.read
       table:articles
       columns
@@ -16,7 +16,7 @@ data.connect:[generic|oracle]
          title
       order:created
       direction:desc
-      limit:5
+      limit:10
 
    // Applying some HTTP cache to avoid exhausting system.
    response.headers.set
