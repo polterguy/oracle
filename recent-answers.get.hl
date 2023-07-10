@@ -4,9 +4,22 @@
  */
 .description:@"Returns 10 most recent answers to caller"
 .arguments
+   from:long
 
 // Connecting to database to retrieve 10 most recent answers.
 data.connect:[generic|oracle]
+
+   // Checking if we've got a [from] argument.
+   if
+      exists:x:@.arguments/*/from
+      .lambda
+
+         // Retrieving only messages with smaller article_id than specified [from].
+         add:x:@data.connect/*/data.read
+            .
+               where
+                  and
+                     article_id.lt:x:@.arguments/*/from
 
    // Retrieving 10 last answers sorted by when they were created.
    data.read
@@ -14,6 +27,7 @@ data.connect:[generic|oracle]
       columns
          url
          title
+         article_id
       order:created
       direction:desc
       limit:10
