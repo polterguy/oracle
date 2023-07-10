@@ -1,0 +1,26 @@
+
+/*
+ * Returns 5 most recent answers to caller.
+ */
+.description:@"Returns 5 most recent answers to caller"
+.arguments
+
+// Connecting to database to retrieve 5 most recent answers.
+data.connect:[generic|oracle]
+
+   // Retrieving 5 last answers sorted by when they were created.
+   data.read
+      table:articles
+      columns
+         url
+         title
+      order:created
+      direction:desc
+      limit:5
+
+   // Applying some HTTP cache to avoid exhausting system.
+   response.headers.set
+      Cache-Control:public; max-age=60
+
+   // Returning result to caller.
+   return:x:@data.read/*

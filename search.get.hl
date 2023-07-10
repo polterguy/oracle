@@ -107,7 +107,7 @@ data.connect:[generic|oracle]
    where vss_search(
      vss.embedding_vss,
      vss_search_params(@embedding, 1)
-   ) and vss.distance < 0.15 and created > date('now','-5 days')"
+   ) and vss.distance < 0.05 and created > date('now','-5 days')"
             embedding:x:@.embedding
          if
             exists:x:@data.select/*
@@ -142,7 +142,7 @@ unwrap:x:+/*/*/query
 set-value:x:@.context
    signal:magic.ai.create-search-context
       query:x:@.arguments/*/prompt
-      max_tokens:int:2500
+      max_tokens:int:4000
 
 // Sanity checking above invocation.
 if
@@ -175,13 +175,15 @@ sockets.signal:x:@.channel
 .system-message
 set-value:x:@.system-message
    strings.concat
-      .:@"Follow these rules when answering my questions:
+      .:@"We are going to play a role game. You are Frank, an expert assistance in the subject, and you will answer all my questions to the best of your abilities. Follow these rules when answering my questions:
 
 * Answer all my questions with information found in the context specified in the next message.
+* Return relevant images as Markdown as a part of your answer if there are relevant images.
 * Never answer with more than maximum 5 paragraphs or 10 sentences.
 * Always provide the answer to my question first, then provide more information.
 * Always answer my question in the same language I ask.
 * List all references you can find as Markdown at the end.
+* Always answer my questions in the same language I ask.
 
 My question is: """
       get-value:x:@.arguments/*/prompt
@@ -194,7 +196,7 @@ http.post:"https://api.openai.com/v1/chat/completions"
       Authorization:x:@.token
       Content-Type:application/json
    payload
-      model:gpt-3.5-turbo
+      model:gpt-4
       max_tokens:int:1500
       temperature:decimal:0.5
       messages
