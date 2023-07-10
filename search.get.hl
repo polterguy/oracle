@@ -248,6 +248,10 @@ set-value:x:@.url
       .:"abcdefghijklmnopqrstuvwxyz0123456789"
       .:-
 set-value:x:@.url
+   strings.substring:x:@.url
+      .:int:0
+      .:int:50
+set-value:x:@.url
    strings.trim:x:@.url
       .:-
 crypto.random
