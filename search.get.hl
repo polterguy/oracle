@@ -14,7 +14,7 @@
 validators.mandatory:x:@.arguments/*/token
 validators.mandatory:x:@.arguments/*/prompt
 validators.string:x:@.arguments/*/prompt
-   min:15
+   min:5
    max:100
 
 // Figuring out channel to post feedback to.
@@ -24,267 +24,279 @@ set-value:x:@.channel
       .:oracle.message.
       get-value:x:@.arguments/*/channel
 
-// Sanity checking reCAPTCHA token
-sockets.signal:x:@.channel
-   args
-      message:Verifying reCAPTCHA token
-config.get:"magic:auth:recaptcha:key"
-config.get:"magic:auth:recaptcha:secret"
-validators.recaptcha:x:@.arguments/*/token
-   min:decimal:0.3
-   site-key:x:@config.get/@config.get
-   secret:x:@config.get
+// Creating a fork such that we can return to caller immediately.
+insert-before:x:./*/fork/0
+   get-nodes:x:@.arguments
+   get-nodes:x:@.channel
+fork
 
-/*
- * Checking cache by creating embeddings for question and looking up into articles table,
- * to see if we've got a similar question asked previously that's not out of date.
- */
+   // Sanity checking reCAPTCHA token
+   sockets.signal:x:@.channel
+      args
+         message:Verifying reCAPTCHA token
+   config.get:"magic:auth:recaptcha:key"
+   config.get:"magic:auth:recaptcha:secret"
+   validators.recaptcha:x:@.arguments/*/token
+      min:decimal:0.3
+      site-key:x:@config.get/@config.get
+      secret:x:@config.get
 
-// Retrieving OpenAI token from configuration.
-.token
-set-value:x:@.token
-   strings.concat
-      .:"Bearer "
-      config.get:"magic:openai:key"
+   /*
+    * Checking cache by creating embeddings for question and looking up into articles table,
+    * to see if we've got a similar question asked previously that's not out of date.
+    */
+
+   // Retrieving OpenAI token from configuration.
+   .token
+   set-value:x:@.token
+      strings.concat
+         .:"Bearer "
+         config.get:"magic:openai:key"
 
 
-// Providing feedback to user.
-sockets.signal:x:@.channel
-   args
-      message:Checking cached answers
+   // Providing feedback to user.
+   sockets.signal:x:@.channel
+      args
+         message:Checking cached answers
 
-// Creating embeddings for question by invoking OpenAI.
-http.post:"https://api.openai.com/v1/embeddings"
-   headers
-      Authorization:x:@.token
-      Content-Type:application/json
-   payload
-      model:text-embedding-ada-002
-      input:x:@.arguments/*/prompt
-   convert:true
+   // Creating embeddings for question by invoking OpenAI.
+   http.post:"https://api.openai.com/v1/embeddings"
+      headers
+         Authorization:x:@.token
+         Content-Type:application/json
+      payload
+         model:text-embedding-ada-002
+         input:x:@.arguments/*/prompt
+      convert:true
 
-// Sanity checking above invocation
-if
-   not
-      and
-         mte:x:@http.post
-            .:int:200
-         lt:x:@http.post
-            .:int:300
-   .lambda
-
-      // Oops, error - Logging error and returning status code to caller.
-      lambda2hyper:x:@http.post
-      log.error:Something went wrong while invoking OpenAI
-         message:x:@http.post/*/content/*/error/*/message
-         status:x:@http.post
-         error:x:@lambda2hyper
-      throw:x:@http.post/*/content/*/error/*/message
-         public:bool:true
-         status:x:@http.post
-
-// Looking up into articles to see if we've got a matching question that's not too old.
-.embedding
-set-value:x:@.embedding
-   strings.concat
-      .:[
-      strings.join:x:@http.post/*/content/*/data/0/*/embedding/*
-         .:,
-      .:]
-data.connect:[generic|oracle]
-
-   // Verifying we have items in VSS table.
-   data.scalar:select count(*) from vss_articles
+   // Sanity checking above invocation
    if
-      mt:x:@data.scalar
-         .:long:0
+      not
+         and
+            mte:x:@http.post
+               .:int:200
+            lt:x:@http.post
+               .:int:300
       .lambda
 
-         // We've got cached items, checking if we've got a match on question.
-         data.select:@"select 100 - (vss.distance * 100) as similarity, a.url
-	from vss_articles as vss
-    	inner join articles a on a.article_id = vss.rowid
+         // Oops, error - Logging error and returning status code to caller.
+         lambda2hyper:x:@http.post
+         log.error:Something went wrong while invoking OpenAI
+            message:x:@http.post/*/content/*/error/*/message
+            status:x:@http.post
+            error:x:@lambda2hyper
+         sockets.signal:x:@.channel
+            args
+               message:Something went wrong while we tried to invoke OpenAI
+               type:error
+
+   // Looking up into articles to see if we've got a matching question.
+   .embedding
+   set-value:x:@.embedding
+      strings.concat
+         .:[
+         strings.join:x:@http.post/*/content/*/data/0/*/embedding/*
+            .:,
+         .:]
+   data.connect:[generic|oracle]
+
+      // Verifying we have items in VSS table.
+      data.scalar:select count(*) from vss_articles
+      if
+         mt:x:@data.scalar
+            .:long:0
+         .lambda
+
+            // We've got cached items, checking if we've got a match on question.
+            data.select:@"
+select 100 - (vss.distance * 100) as similarity, a.url
+   from vss_articles as vss
+      inner join articles a on a.article_id = vss.rowid
    where vss_search(
      vss.embedding_vss,
      vss_search_params(@embedding, 1)
-   ) and vss.distance < 0.05"
-            embedding:x:@.embedding
-         if
-            exists:x:@data.select/*
-            .lambda
+   ) and vss.distance < 0.05
+   limit 1"
+               embedding:x:@.embedding
 
-               // Found similar question in cache, returning it to caller.
-               strings.concat
-                  .:"Found recently cached answer with a similarity of "
-                  format:x:@data.select/0/*/similarity
-                     pattern:"{0:#.#} percent"
-                  .:", redirecting to cached answer"
-               unwrap:x:+/*/*
-               sockets.signal:x:@.channel
-                  args
-                     message:x:@strings.concat
-               sleep:4000
-               unwrap:x:+/*
-               return
-                  url:x:@data.select/0/*/url
+   // Checking if above invocation returned a matching article, and if so, returning it to caller.
+   if
+      exists:x:@data.connect/**/data.select/*
+      .lambda
 
+         // Found similar question in cache, returning it to caller.
+         strings.concat
+            .:"Found recently cached answer with a similarity of "
+            format:x:@data.connect/**/data.select/0/*/similarity
+               pattern:"{0:#.#} percent"
+            .:", redirecting to cached answer"
+         unwrap:x:+/*/*
+         sockets.signal:x:@.channel
+            args
+               message:x:@strings.concat
+         sleep:2500
+         unwrap:x:+/*/*/message
+         sockets.signal:x:@.channel
+            args
+               message:x:@data.connect/**/data.select/0/*/url
+               type:article_created
 
-// No article found in cache that's relevant to the question.
+   else
 
-// Providing feedback to user.
-sockets.signal:x:@.channel
-   args
-      message:Invoking DuckDuckGo
+      // Providing feedback to user.
+      sockets.signal:x:@.channel
+         args
+            message:Invoking DuckDuckGo
 
-// Invoking DuckDuckGo.
-.context
-unwrap:x:+/*/*/query
-set-value:x:@.context
-   signal:magic.ai.create-search-context
-      query:x:@.arguments/*/prompt
-      max_tokens:int:4000
+      // Invoking DuckDuckGo.
+      .context
+      unwrap:x:+/*/*/query
+      set-value:x:@.context
+         signal:magic.ai.create-search-context
+            query:x:@.arguments/*/prompt
+            max_tokens:int:4000
 
-// Sanity checking above invocation.
-if
-   or
-      null:x:@.context
-      eq:x:@.context
-         .:
-   .lambda
+      // Sanity checking above invocation.
+      if
+         or
+            null:x:@.context
+            eq:x:@.context
+               .:
+         .lambda
 
-      // Oops, error.
-      log.error:Something went wrong as we invoked DuckDuckGo
-      throw:DuckDuckGo returned nothing as its result of our query
-         public:bool:true
-         status:int:500
+            // Oops, error.
+            log.error:Something went wrong as we invoked DuckDuckGo
+            throw:DuckDuckGo returned nothing as its result of our query
+               public:bool:true
+               status:int:500
 
-// Providing feedback to user.
-strings.concat
-   .:"DuckDuckGo returned "
-   openai.tokenize:x:@.context
-   .:" tokens, invoking ChatGPT"
-unwrap:x:+/*/*
-sockets.signal:x:@.channel
-   args
-      message:x:@strings.concat
+      // Providing feedback to user.
+      strings.concat
+         .:"DuckDuckGo returned "
+         openai.tokenize:x:@.context
+         .:" tokens, invoking ChatGPT"
+      unwrap:x:+/*/*
+      sockets.signal:x:@.channel
+         args
+            message:x:@strings.concat
 
-/*
- * Invoking OpenAI with above as context, and a system message
- * instructing it to create a summary of the above.
- */
-.system-message
-set-value:x:@.system-message
-   strings.concat
-      .:@"We are going to play a role game. You are Frank, an expert assistance in the subject, and you will answer all my questions to the best of your abilities. Follow these rules when answering my questions:
+      /*
+       * Invoking OpenAI with above as context, and a system message
+       * instructing it to create a summary of the above.
+       */
+      .system-message
+      set-value:x:@.system-message
+         strings.concat
+            .:@"We are going to play a role game. You are Frank, an expert assistance in the subject, and you will answer all my questions to the best of your abilities. Follow these rules when answering my questions:
 
-* Answer all my questions with information found in the context specified in the next message.
-* Always return relevant images as Markdown as a part of your answer.
-* Never answer with more than maximum 8 paragraphs or 15 sentences.
-* Always provide the answer to my question first, then provide additional relevant information to further explore the subject.
-* List all references you can find as Markdown at the end.
-* Always answer my questions in the same language I ask.
+      * Answer all my questions with information found in the context specified in the next message.
+      * Always return relevant images as Markdown as a part of your answer.
+      * Never answer with more than maximum 8 paragraphs or 15 sentences.
+      * Always provide the answer to my question first, then provide additional relevant information to further explore the subject.
+      * List all references you can find as Markdown at the end.
+      * Always answer my questions in the same language I ask.
 
-My question is: """
-      get-value:x:@.arguments/*/prompt
-      .:@""""
+      My question is: """
+            get-value:x:@.arguments/*/prompt
+            .:@""""
 
-// Invoking OpenAI.
-unwrap:x:+/*/payload/*/messages/*/*/content
-http.post:"https://api.openai.com/v1/chat/completions"
-   headers
-      Authorization:x:@.token
-      Content-Type:application/json
-   payload
-      model:gpt-4
-      max_tokens:int:2000
-      temperature:decimal:0.5
-      messages
-         .
-            role:system
-            content:x:@.system-message
-         .
-            role:system
-            content:x:@.context
-   convert:true
+      // Invoking OpenAI.
+      unwrap:x:+/*/payload/*/messages/*/*/content
+      http.post:"https://api.openai.com/v1/chat/completions"
+         headers
+            Authorization:x:@.token
+            Content-Type:application/json
+         payload
+            model:gpt-4
+            max_tokens:int:2000
+            temperature:decimal:0.5
+            messages
+               .
+                  role:system
+                  content:x:@.system-message
+               .
+                  role:system
+                  content:x:@.context
+         convert:true
 
-// Sanity checking above invocation
-if
-   not
-      and
-         mte:x:@http.post
-            .:int:200
-         lt:x:@http.post
-            .:int:300
-   .lambda
+      // Sanity checking above invocation
+      if
+         not
+            and
+               mte:x:@http.post
+                  .:int:200
+               lt:x:@http.post
+                  .:int:300
+         .lambda
 
-      // Oops, error - Logging error and returning status code to caller.
-      lambda2hyper:x:@http.post
-      log.error:Something went wrong while invoking OpenAI
-         message:x:@http.post/*/content/*/error/*/message
-         status:x:@http.post
-         error:x:@lambda2hyper
-      throw:x:@http.post/*/content/*/error/*/message
-         public:bool:true
-         status:x:@http.post
+            // Oops, error - Logging error and returning status code to caller.
+            lambda2hyper:x:@http.post
+            log.error:Something went wrong while invoking OpenAI
+               message:x:@http.post/*/content/*/error/*/message
+               status:x:@http.post
+               error:x:@lambda2hyper
+            throw:x:@http.post/*/content/*/error/*/message
+               public:bool:true
+               status:x:@http.post
 
-// Providing feedback to user.
-sockets.signal:x:@.channel
-   args
-      message:OpenAI returned success, creating article
+      // Providing feedback to user.
+      sockets.signal:x:@.channel
+         args
+            message:OpenAI returned success, creating article
 
-// Creating our source.
-.source
-set-value:x:@.source
-   strings.concat
-      .:"https://html.duckduckgo.com/html/?q="
-      strings.url-encode:x:@.arguments/*/prompt
+      // Creating our source.
+      .source
+      set-value:x:@.source
+         strings.concat
+            .:"https://html.duckduckgo.com/html/?q="
+            strings.url-encode:x:@.arguments/*/prompt
 
-// Creating a unique URL.
-.url
-set-value:x:@.url
-   strings.to-lower:x:@.arguments/*/prompt
-set-value:x:@.url
-   strings.replace-not-of:x:@.url
-      .:"abcdefghijklmnopqrstuvwxyz0123456789"
-      .:-
-set-value:x:@.url
-   strings.substring:x:@.url
-      .:int:0
-      .:int:50
-set-value:x:@.url
-   strings.trim:x:@.url
-      .:-
-crypto.random
-   min:10
-   max:10
-set-value:x:@.url
-   strings.concat:x:@.url
-      get-value:x:@.url
-      .:-
-      strings.to-lower:x:@crypto.random
+      // Creating a unique URL.
+      .url
+      set-value:x:@.url
+         strings.to-lower:x:@.arguments/*/prompt
+      set-value:x:@.url
+         strings.replace-not-of:x:@.url
+            .:"abcdefghijklmnopqrstuvwxyz0123456789"
+            .:-
+      set-value:x:@.url
+         strings.substring:x:@.url
+            .:int:0
+            .:int:50
+      set-value:x:@.url
+         strings.trim:x:@.url
+            .:-
+      crypto.random
+         min:10
+         max:10
+      set-value:x:@.url
+         strings.concat:x:@.url
+            get-value:x:@.url
+            .:-
+            strings.to-lower:x:@crypto.random
 
-// Creating an article out of the above result.
-data.connect:[generic|oracle]
-   data.create
-      table:articles
-      values
-         title:x:@.arguments/*/prompt
-         content:x:@http.post/*/content/*/choices/0/*/message/*/content
-         url:x:@.url
-         source:x:@.source
-   data.create
-      table:vss_articles
-      values
-         rowid:x:@data.create/@data.create
-         embedding_vss:x:@.embedding
+      // Creating an article out of the above result.
+      data.connect:[generic|oracle]
+         data.create
+            table:articles
+            values
+               title:x:@.arguments/*/prompt
+               content:x:@http.post/*/content/*/choices/0/*/message/*/content
+               url:x:@.url
+               source:x:@.source
+         data.create
+            table:vss_articles
+            values
+               rowid:x:@data.create/@data.create
+               embedding_vss:x:@.embedding
 
-// Providing feedback to user.
-sockets.signal:x:@.channel
-   args
-      message:Success, returning article URL to caller
-sleep:500
+      // Providing feedback to user.
+      unwrap:x:+/*/*/message
+      sockets.signal:x:@.channel
+         args
+            message:x:@.url
+            type:article_created
 
-// Returning result to caller.
-unwrap:x:+/*
+// Returning status pending to caller.
 return
-   url:x:@.url
+   status:pending
