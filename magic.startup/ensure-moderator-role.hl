@@ -1,0 +1,7 @@
+
+/*
+ * Ensure that the moderator roles exists, which is needed to moderate articles.
+ */
+signal:magic.auth.ensure-role
+   role:moderator
+   description:An AINIRO moderator that can moderate Oracle answers.

@@ -1,0 +1,32 @@
+
+/*
+ * Ensure that the scheduled task that deletes old articles exists.
+ */
+tasks.list:oracle.article.delete-old
+if
+   not-exists:x:@tasks.list/*
+   .lambda
+
+      // Creating scheduled task that cleans up articles once every 24 hours.
+      tasks.create:oracle.article.delete-old
+         description:Periodically deletes all articles older than 24 hours that are not permalink articles
+         repeats:5.hours
+         .lambda
+
+            // Connecting todatabase
+            sqlite.connect:[generic|oracle]
+
+               // Deleting from VSS table first.
+               sqlite.execute:@"
+delete from vss_articles
+   where rowid in
+      (select article_id as rowid from articles where created < date('now', '-24 hours') and permalink != 1)"
+
+               // Deleting from main articles table.
+               sqlite.execute:@"
+delete from articles
+   where created < date('now', '-24 hours') and
+      permalink != 1"
+
+               // Logging.
+               log.info:Task to delete old articles that are not permalink articles have been executed
