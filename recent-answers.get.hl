@@ -21,16 +21,17 @@ data.connect:[generic|oracle]
                   and
                      article_id.lt:x:@.arguments/*/from
 
-   // Retrieving 10 last answers sorted by when they were created.
+   // Retrieving 25 last answers sorted by when they were created.
    data.read
       table:articles
       columns
          url
          title
          article_id
+         permalink
       order:created
       direction:desc
-      limit:10
+      limit:25
 
    // Returning result to caller.
    return-nodes:x:@data.read/*
