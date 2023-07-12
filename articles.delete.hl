@@ -1,0 +1,30 @@
+
+/*
+ * Deletes the article with the specified [article_id].
+ */
+.description:@"Deletes the article with the specified [article_id]"
+.arguments
+   article_id:long
+
+// Sanity checking invocation.
+validators.mandatory:x:@.arguments/*/article_id
+
+// Ensuring user has access to endpoint.
+auth.ticket.verify:root, moderator
+
+data.connect:[generic|oracle]
+
+   // Deleting from VSS table.
+   data.execute:delete from vss_articles where rowid = @id
+      id:x:@.arguments/*/article_id
+
+   // Deleting primary article.
+   data.delete
+      table:articles
+      where
+         and
+            article_id.eq:x:@.arguments/*/article_id
+
+// Returning success to caller.
+return
+   result:success

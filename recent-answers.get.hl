@@ -32,9 +32,5 @@ data.connect:[generic|oracle]
       direction:desc
       limit:10
 
-   // Applying some HTTP cache to avoid exhausting system.
-   response.headers.set
-      Cache-Control:public; max-age=60
-
    // Returning result to caller.
-   return:x:@data.read/*
+   return-nodes:x:@data.read/*
