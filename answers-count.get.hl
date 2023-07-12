@@ -4,9 +4,23 @@
  */
 .description:@"Returns how many answers database contains"
 .arguments
+   permalinks:bool
 
 // Connecting to database to count answers.
 data.connect:[generic|oracle]
+
+   // Checking if caller only wants permalinks.
+   if
+      and
+         exists:x:@.arguments/*/permalinks
+         eq:x:@.arguments/*/permalinks
+            .:bool:true
+      .lambda
+         add:x:@data.connect/*/data.read
+            .
+               where
+                  and
+                     permalink.eq:long:1
 
    // Counting answers.
    data.read
