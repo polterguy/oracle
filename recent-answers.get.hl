@@ -5,6 +5,7 @@
 .description:@"Returns 10 most recent answers to caller"
 .arguments
    from:long
+   permalinks:bool
 
 // Connecting to database to retrieve 10 most recent answers.
 data.connect:[generic|oracle]
@@ -15,11 +16,28 @@ data.connect:[generic|oracle]
       .lambda
 
          // Retrieving only messages with smaller article_id than specified [from].
-         add:x:@data.connect/*/data.read
+         add:x:@data.connect/*/data.read/*/where/*/and
             .
-               where
-                  and
-                     article_id.lt:x:@.arguments/*/from
+               article_id.lt:x:@.arguments/*/from
+
+   // Checking if we've got a [from] argument.
+   if
+      and
+         exists:x:@.arguments/*/permalinks
+         eq:x:@.arguments/*/permalinks
+            .:bool:true
+      .lambda
+
+         // Retrieving only messages with smaller article_id than specified [from].
+         add:x:@data.connect/*/data.read/*/where/*/and
+            .
+               permalink.eq:long:1
+
+   // Verifying we have a [where] clause, and if not, removing it.
+   if
+      not-exists:x:@data.connect/*/data.read/*/where/*/and/*
+      .lambda
+         remove-nodes:x:@data.connect/*/data.read/*/where
 
    // Retrieving 25 last answers sorted by when they were created.
    data.read
@@ -29,6 +47,8 @@ data.connect:[generic|oracle]
          title
          article_id
          permalink
+      where
+         and
       order:created
       direction:desc
       limit:25
