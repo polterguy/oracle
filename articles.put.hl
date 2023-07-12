@@ -13,9 +13,10 @@ validators.mandatory:x:@.arguments/*/article_id
 // Ensuring user has access to endpoint.
 auth.ticket.verify:root, moderator
 
+// Connecting to database.
 data.connect:[generic|oracle]
 
-   // Deleting primary article.
+   // Updating article.
    add:x:./*/data.update/*/values
       get-nodes:x:@.arguments/*
    remove-nodes:x:./*/data.update/*/values/*/article_id
@@ -27,6 +28,5 @@ data.connect:[generic|oracle]
             article_id.eq:x:@.arguments/*/article_id
 
 // Returning success to caller.
-response.status.set:201
 return
    result:success
