@@ -15,6 +15,10 @@ validators.mandatory:x:@.arguments/*/ad_id
 data.connect:[generic|oracle]
    database-type:sqlite
 
+   // Deleting from vss_ads
+   data.execute:delete from vss_ads where rowid = @id
+      id:x:@.arguments/*/ad_id
+
    // Parametrising our delete invocation.
    add:x:./*/data.delete/*/where/*/and
       get-nodes:x:@.arguments/*

@@ -23,6 +23,55 @@ data.connect:[generic|oracle]
       return-id:bool:true
       values
 
+   // Creating embeddings for ad and inserting into vss_ads.
+   .token
+   set-value:x:@.token
+      strings.concat
+         .:"Bearer "
+         config.get:"magic:openai:key"
+
+   // Creating embeddings for question by invoking OpenAI.
+   http.post:"https://api.openai.com/v1/embeddings"
+      headers
+         Authorization:x:@.token
+         Content-Type:application/json
+      payload
+         model:text-embedding-ada-002
+         input:x:@.arguments/*/content
+      convert:true
+
+   // Sanity checking above invocation
+   if
+      not
+         and
+            mte:x:@http.post
+               .:int:200
+            lt:x:@http.post
+               .:int:300
+      .lambda
+
+         // Oops, error - Logging error and returning status code to caller.
+         lambda2hyper:x:@http.post
+         log.error:Something went wrong while invoking OpenAI
+            message:x:@http.post/*/content/*/error/*/message
+            status:x:@http.post
+            error:x:@lambda2hyper
+         throw:Something went wrong while we tried to invoke OpenAI, check your log for details
+            public:bool:true
+            status:int:400
+
+   // Inserting our embedding.
+   .embedding
+   set-value:x:@.embedding
+      strings.concat
+         .:[
+         strings.join:x:@http.post/*/content/*/data/0/*/embedding/*
+            .:,
+         .:]
+   data.execute:insert into vss_ads (rowid, embedding_vss) values (@id, @embedding)
+      id:x:@data.create
+      embedding:x:@.embedding
+
    // Returning the correct status code.
    response.status.set:201
 
