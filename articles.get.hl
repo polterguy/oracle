@@ -1,12 +1,10 @@
 
 /*
- * Deletes the article with the specified [article_id].
+ * Gets the content for the article with the specified ID.
  */
 .description:@"Deletes the article with the specified [article_id]"
 .arguments
    article_id:long
-   permalink:int
-   content:string
 
 // Sanity checking invocation.
 validators.mandatory:x:@.arguments/*/article_id
@@ -17,17 +15,16 @@ auth.ticket.verify:root, moderator
 // Connecting to database.
 data.connect:[generic|oracle]
 
-   // Updating article.
-   add:x:./*/data.update/*/values
-      get-nodes:x:@.arguments/*
-   remove-nodes:x:./*/data.update/*/values/*/article_id
-   data.update
+   // Reading article's content from database
+   data.read
       table:articles
-      values
+      columns
+         content
       where
          and
             article_id.eq:x:@.arguments/*/article_id
 
-// Returning success to caller.
-return
-   result:success
+   // Returning article to caller.
+   unwrap:x:+/*
+   return-nodes
+      content:x:@data.read/*/*
